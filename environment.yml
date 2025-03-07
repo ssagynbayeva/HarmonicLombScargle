@@ -3,13 +3,15 @@ channels:
   - conda-forge
 dependencies:
   - arviz
-  - matplotlib
-  - numpy
-  - python=3.11
-  - scipy
-  - lightkurve
   - ipykernel
   - ipywidgets
-  - numpyro
+  - lightkurve
+  - matplotlib
+  - numpy
+  - pip
+  - pymc
+  - python=3.11
+  - scipy
+  - seaborn
   - pip:
     - celerite2

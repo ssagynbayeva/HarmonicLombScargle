@@ -1,35 +1,30 @@
-from celerite2.jax import GaussianProcess, terms
-import jax.numpy as jnp
-import numpyro
-import numpyro.distributions as dist
+from celerite2.pymc import terms, GaussianProcess
+import pymc as pm
+import pytensor.tensor as pt
 
-def harmonic_SHO_model(t, y, yerr, yquarters, f0, nharmonics, f0_frac_uncert=0.1):
-    uquarters, quarter_indices = jnp.unique(yquarters, return_inverse=True)
-    nquarters = uquarters.shape[0]
+def harmonic_SHO_model(t, y, yerr, yquarters, f0, nharmonics, mu_mu, mu_sigma, sho_sigma_prior, f0_frac_uncert=0.1):
+    with pm.Model() as model:
+        nquarters = mu_mu.shape[0]
 
-    n_in_bins = jnp.bincount(quarter_indices)
-    y_means = jnp.bincount(quarter_indices, weights=y) / n_in_bins
-    y_vars = jnp.bincount(quarter_indices, weights=(y - y_means[quarter_indices])**2) / n_in_bins
-    y_std = jnp.sqrt(y_vars)
+        mus_scaled = pm.Normal('mus_scaled', 0, 1, shape=(nquarters,))
+        mus = pm.Deterministic('mus', mus_scaled * mu_sigma + mu_mu)
 
-    y_tot_var = jnp.sum(y_vars * n_in_bins) / jnp.sum(n_in_bins)
-    y_tot_std = jnp.sqrt(y_tot_var)
+        y_centered = y - mus[yquarters]
 
-    mus_scaled = numpyro.sample('mus_scaled', dist.Normal(0,1), sample_shape=(nquarters,))
-    mus = numpyro.deterministic('mus', mus_scaled * y_std + y_means)
+        log_f0_scaled = pm.Normal('log_f0_scaled', 0, 1)
+        log_f0 = pm.Deterministic('log_f0', log_f0_scaled*f0_frac_uncert + pt.log(f0))
+        fs = pm.Deterministic('fs', pt.exp(log_f0 + pt.log(np.arange(nharmonics) + 1)))
 
-    y_centered = y - mus[quarter_indices]
+        log_Qs = pm.Uniform('log_Qs', pt.log(1), pt.log(100), shape=(nharmonics,))
+        Qs = pm.Deterministic('Qs', pt.exp(log_Qs))
 
-    log_fs_scaled = numpyro.sample('log_fs_scaled', dist.Normal(0, 1), sample_shape=(nharmonics,))
-    log_fs = numpyro.deterministic('log_fs', log_fs_scaled*f0_frac_uncert + jnp.log(f0) + jnp.log(jnp.arange(nharmonics)))
-    fs = numpyro.deterministic('fs', jnp.exp(log_fs))
+        sigmas = pm.LogNormal('sigmas', pt.log(sho_sigma_prior), pt.log(10.0)/2, shape=(nharmonics,))
 
-    Qs = numpyro.sample('Qs', dist.LogNormal(jnp.log(10.0), jnp.log(10.0)/2), sample_shape=(nharmonics,))
-    sigmas = numpyro.sample('sigmas', dist.LogNormal(jnp.log(y_tot_std), jnp.log(10.0)/2), sample_shape=(nharmonics,))
+        trms = [terms.SHOTerm(w0=2*np.pi*fs[i], Q=Qs[i], sigma=sigmas[i]) for i in range(nharmonics)]
+        kernel = terms.TermSum(*trms)
 
-    trms = [terms.SHOTerm(w0=2*jnp.pi*fs[i], Q=Qs[i], sigma=sigmas[i]) for i in range(nharmonics)]
-    kernel = terms.TermSum(*trms)
+        gp = GaussianProcess(kernel)
+        gp.compute(t, yerr=yerr)
+        pm.Potential('log_likelihood', gp.log_likelihood(y_centered))
 
-    gp = GaussianProcess(kernel, mean=0.0)
-    gp.compute(t, yerr=yerr)
-    numpyro.factor('log_likelihood', gp.log_likelihood(y_centered))
+        return model
