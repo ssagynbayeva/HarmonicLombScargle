@@ -1,0 +1,17 @@
+name: harmonic-lomb-scargle
+channels:
+  - conda-forge
+dependencies:
+  - arviz
+  - ipykernel
+  - ipywidgets
+  - lightkurve
+  - matplotlib
+  - numpy
+  - pip
+  - pymc
+  - python=3.11
+  - scipy
+  - seaborn
+  - pip:
+    - celerite2
