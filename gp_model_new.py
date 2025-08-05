@@ -117,12 +117,16 @@ def harmonic_sho_model(t, y, yerr, yquarters, f0, psd_freq=None, predict_flux=Fa
         # We want the longest allowed timescale to be the longest period, so c_max = 1/longest_period
         # We set c_min = 1/T (where T is total observation time) to avoid very long timescales
         T_obs = np.max(t) - np.min(t)  # Total observation time
-        c_min = 1.0 / T_obs  # Longest allowed timescale is the total observation time
-        c_max = 1.0 / longest_period  # Shortest allowed timescale is the longest rotation period
+        # c_min = 1.0 / T_obs  # Longest allowed timescale is the total observation time
+        # c_max = 1.0 / longest_period  # Shortest allowed timescale is the longest rotation period
         
-        # Use a log-uniform prior for c between these bounds
-        log_c = pm.Uniform('log_c', pt.log(c_min), pt.log(c_max))
-        c = pm.Deterministic('c', pt.exp(log_c))
+        # # Use a log-uniform prior for c between these bounds
+        # log_c = pm.Uniform('log_c', pt.log(c_min), pt.log(c_max))
+        # c = pm.Deterministic('c', pt.exp(log_c))
+
+        log_timescale = pm.Uniform('log_timescale', np.log(period/10), np.log(T_obs/10))
+        timescale = pm.Deterministic('timescale', pt.exp(log_timescale))
+        c = pm.Deterministic('c', 1.0/timescale)
         
         # For the amplitude parameter 'a', we want sigma_red_noise to follow the same
         # pattern as the main sigma parameter for the rotation kernel
@@ -132,7 +136,13 @@ def harmonic_sho_model(t, y, yerr, yquarters, f0, psd_freq=None, predict_flux=Fa
         # The variance of the red noise process is just 'a'
         a_red_noise = pm.Deterministic('a_red_noise', sigma_red_noise * sigma_red_noise)
 
-        kernel2 = terms.RealTerm(a=a_red_noise, c=c)
+        # kernel2 = terms.RealTerm(a=a_red_noise, c=c)
+
+        S0 = pm.Deterministic('S0', a_red_noise / (2 * c))
+        w0 = pm.Deterministic('w0', 2*np.pi*c)
+        Q = 0.5  
+        
+        kernel2 = terms.SHOTerm(S0=S0, w0=w0, Q=Q)
 
         kernel = kernel1 + kernel2
 
