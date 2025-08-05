@@ -124,7 +124,7 @@ def harmonic_sho_model(t, y, yerr, yquarters, f0, psd_freq=None, predict_flux=Fa
         # log_c = pm.Uniform('log_c', pt.log(c_min), pt.log(c_max))
         # c = pm.Deterministic('c', pt.exp(log_c))
 
-        log_timescale = pm.Uniform('log_timescale', np.log(period/10), np.log(T_obs/10))
+        log_timescale = pm.Uniform('log_timescale', np.log(longest_period), np.log(T_obs))
         timescale = pm.Deterministic('timescale', pt.exp(log_timescale))
         c = pm.Deterministic('c', 1.0/timescale)
         
@@ -133,14 +133,31 @@ def harmonic_sho_model(t, y, yerr, yquarters, f0, psd_freq=None, predict_flux=Fa
         sigma_red_noise_scaled = pm.HalfNormal('sigma_red_noise_scaled', 0.1 / np.median(rel_std_quarters))
         sigma_red_noise = pm.Deterministic('sigma_red_noise', sigma_red_noise_scaled * np.median(rel_std_quarters))
         
-        # The variance of the red noise process is just 'a'
-        a_red_noise = pm.Deterministic('a_red_noise', sigma_red_noise * sigma_red_noise)
+        # kernel2 = terms.RealTerm(a=a_red_noise, c=c) We are approximating the
+        # RealTerm with a SHO term that is over-damped, Q << 0.5 The PSD for an
+        # SHO term is S(w) = sqrt(2/pi) S0 w0^4 / ((w^2 - w0^2)^2 + (w0/Q)^2
+        # w^2) A few facts about this expression: 
+        # 
+        # As w -> 0, S(w) -> sqrt(2/pi)S0. 
+        # 
+        # The RMS of the SHO term is sqrt(S0 w0 Q).
+        # 
+        # For small Q, the derivative S'(w) = -2*S(0) (w0*Q)^2/w^3 + O(Q^4)
+        # 
+        # We note that the equivalent derivative of the RealTerm (w S'(w)/S0) is
+        # -0.5 when w = c, the damping rate.
+        #
+        # Our approach here is to fix Q = 0.1 << 0.5 (so the oscillator is
+        # over-damped), and then match (1) the RMS we wanted from the RealTerm
+        # and (2) choose the SHR term's w0 to match w S'(w)/S0 at w = c.
+        #
+        # These two conditions give (2): w0 = 0.5 c / Q, and then (1) S0 = a/(w0*Q)
+        Q = 0.1
 
-        # kernel2 = terms.RealTerm(a=a_red_noise, c=c)
+        # Chosen to match the RMS from `sigma_red_noise`
+        w0 = pm.Deterministic('w0', c / (2*Q))
+        S0 = pm.Deterministic('S0', sigma_red_noise * sigma_red_noise / (w0 * Q))
 
-        S0 = pm.Deterministic('S0', a_red_noise / (2 * c))
-        w0 = pm.Deterministic('w0', 2*np.pi*c)
-        Q = 0.5  
         
         kernel2 = terms.SHOTerm(S0=S0, w0=w0, Q=Q)
 
