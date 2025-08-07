@@ -152,7 +152,7 @@ def harmonic_sho_model(t, y, yerr, yquarters, f0, psd_freq=None, predict_flux=Fa
 
         kernel2 = terms.SHOTerm(S0=S0, w0=w0, Q=Q)
 
-        kernel = kernel1 + kernel2
+        kernel = kernel2
 
         gp = GaussianProcess(kernel)
         gp.compute(t, yerr=y_err_scaled, quiet=True)
