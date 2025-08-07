@@ -110,38 +110,46 @@ def harmonic_sho_model(t, y, yerr, yquarters, f0, psd_freq=None, predict_flux=Fa
         Q1 = pm.Deterministic('Q1', 0.5 + dQ1)
 
         kernel1 = terms.RotationTerm(sigma=sigma, period=period, Q0=dQ1, dQ=dQ0, f=frac)
+        
+        # kernel2 = terms.RealTerm(a=a_red_noise, c=c) We are approximating the
+        # RealTerm with a SHO term that is over-damped, Q << 0.5 The PSD for an
+        # SHO term is S(w) = sqrt(2/pi) S0 w0^4 / ((w^2 - w0^2)^2 + (w0/Q)^2
+        # w^2) A few facts about this expression: 
+        # 
+        # As w -> 0, S(w) -> sqrt(2/pi)S0. 
+        # 
+        # The RMS of the SHO term is sqrt(S0 w0 Q).
+        # 
+        # For small Q, the derivative S'(w) = -2*S(0) (w0*Q)^2/w^3 + O(Q^4)
+        # 
+        # We note that the equivalent derivative of the RealTerm (w S'(w)/S0) is
+        # -0.5 when w = c, the damping rate.
+        #
+        # Our approach here is to fix Q = 0.1 << 0.5 (so the oscillator is
+        # over-damped), and then match (1) the RMS we wanted from the RealTerm
+        # and (2) choose the SHR term's w0 to match w S'(w)/S0 at w = c.
+        #
+        # These two conditions give (2): w0 = 0.5 c / Q, and then (1) S0 = a/(w0*Q)
 
         longest_period = 1.0 / (f0 / np.sqrt(2))  
         
-        # For RealTerm: c parameter (decay rate) controls 1/c = characteristic timescale
-        # We want the longest allowed timescale to be the longest period, so c_max = 1/longest_period
-        # We set c_min = 1/T (where T is total observation time) to avoid very long timescales
         T_obs = np.max(t) - np.min(t)  # Total observation time
-        # c_min = 1.0 / T_obs  # Longest allowed timescale is the total observation time
-        # c_max = 1.0 / longest_period  # Shortest allowed timescale is the longest rotation period
-        
-        # # Use a log-uniform prior for c between these bounds
-        # log_c = pm.Uniform('log_c', pt.log(c_min), pt.log(c_max))
-        # c = pm.Deterministic('c', pt.exp(log_c))
 
-        log_timescale = pm.Uniform('log_timescale', np.log(period/10), np.log(T_obs/10))
+        log_timescale = pm.Uniform('log_timescale', np.log(longest_period), np.log(T_obs))
         timescale = pm.Deterministic('timescale', pt.exp(log_timescale))
-        c = pm.Deterministic('c', 1.0/timescale)
-        
-        # For the amplitude parameter 'a', we want sigma_red_noise to follow the same
-        # pattern as the main sigma parameter for the rotation kernel
+        c = pm.Deterministic('c', 2*np.pi*1.0/timescale)
+
+
         sigma_red_noise_scaled = pm.HalfNormal('sigma_red_noise_scaled', 0.1 / np.median(rel_std_quarters))
         sigma_red_noise = pm.Deterministic('sigma_red_noise', sigma_red_noise_scaled * np.median(rel_std_quarters))
-        
-        # The variance of the red noise process is just 'a'
-        a_red_noise = pm.Deterministic('a_red_noise', sigma_red_noise * sigma_red_noise)
 
-        # kernel2 = terms.RealTerm(a=a_red_noise, c=c)
 
-        S0 = pm.Deterministic('S0', a_red_noise / (2 * c))
-        w0 = pm.Deterministic('w0', 2*np.pi*c)
-        Q = 0.5  
-        
+        Q = 0.1
+
+        # Chosen to match the RMS from `sigma_red_noise`
+        w0 = pm.Deterministic('w0', c / (2*Q))
+        S0 = pm.Deterministic('S0', sigma_red_noise * sigma_red_noise / (w0 * Q))
+
         kernel2 = terms.SHOTerm(S0=S0, w0=w0, Q=Q)
 
         kernel = kernel1 + kernel2
